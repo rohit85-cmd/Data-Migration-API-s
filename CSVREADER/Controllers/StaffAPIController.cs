@@ -1,13 +1,14 @@
 ﻿using CsvHelper;
 using CSVREADER.Models;
 using Microsoft.AspNetCore.Mvc;
-using System.Collections.Generic;
 using System.Globalization;
 using CSVREADER.Data;
 using Microsoft.EntityFrameworkCore;
 using CsvHelper.Configuration;
 using System.Text;
-using System;
+using System.Diagnostics;
+using Swashbuckle.AspNetCore.Annotations;
+
 
 [ApiController]
 [Route("api/staffAPI")]
@@ -22,13 +23,20 @@ public class StaffAPIController : ControllerBase
         _db = db;
     }
 
-    //Get All content from csv
+    
+   
 
     [HttpGet]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [SwaggerOperation(Summary = "Returns staff records", Description = "Returns all staff records from the database.")]
+    [SwaggerResponse(200, "OK", typeof(IEnumerable<Staff>))]
+    //[ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<Staff>>> GetAllCSVContent()
     {
+        var watch = new Stopwatch();
+        watch.Start();
         IEnumerable<Staff> StaffList = await _db.StaffData.ToListAsync();
+        watch.Stop();
+        Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
         return Ok(StaffList);
     }
 
@@ -37,11 +45,18 @@ public class StaffAPIController : ControllerBase
 
     //Migrating csv content to sql DB
     [HttpPost]
-    [ProducesResponseType (StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [SwaggerOperation(Summary = "Uploads Staff CSV to SQL Database", Description = "Uploads Staff CSV to SQL Database with its respective matched column")]
+    [SwaggerResponse(200, "OK", typeof(IEnumerable<Staff>))]
+    [SwaggerResponse(400,"BadRequest")]
+    //[ProducesResponseType (StatusCodes.Status200OK)]
+    //[ProducesResponseType(StatusCodes.Status400BadRequest)]
 
     public async Task<IActionResult> ReadCSVContent(IFormFile file) 
     {
+        var watch = new Stopwatch();
+        watch.Start();
+
+
         if (file == null || file.Length == 0)
         {
             return BadRequest("No file selected");
@@ -72,9 +87,19 @@ public class StaffAPIController : ControllerBase
                 var staffRecords = csv.GetRecords<Staff>().ToList();
                 //Console.WriteLine(staffRecords.GetType());
 
+                /*
+                foreach (var record in staffRecords)
+                {
+                    Console.WriteLine($"{record.Staff_Id},{record.Staff_FirstName},{record.Staff_LastName},{record.Staff_ContactNo}");
+                }
+                */
 
                 await _db.StaffData.AddRangeAsync(staffRecords);
                 await _db.SaveChangesAsync();
+
+
+                watch.Stop();
+                Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
 
                 return Ok(staffRecords);
             }
@@ -83,19 +108,32 @@ public class StaffAPIController : ControllerBase
                 //if duplicate records
                 //if datatypes and datafields are not same as Staff Model we created
                 //then returning badRequest
+
                 return BadRequest("Bad Data Found");
             }   
         }
     }
 
 
-    [HttpDelete ("id : int")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+
+   
+    [HttpDelete ("{id:int}")]
+
+    [SwaggerOperation(Summary = "Deletes staff record by ID", Description = "Deletes staff record with the specified ID from SQL Database.")]
+
+    [SwaggerResponse (204,"OK")]
+    [SwaggerResponse (400,"BadRequest")]
+    [SwaggerResponse(404, "NotFound")]
+
+    //[ProducesResponseType(StatusCodes.Status204NoContent)]
+    //[ProducesResponseType(StatusCodes.Status404NotFound)]
+    //[ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> DeleteStaffRecord(int id)
     {
-        if(id==0)
+        var watch = new Stopwatch();
+        watch.Start();
+
+        if (id==0)
         {
             return BadRequest();
         }
@@ -109,6 +147,8 @@ public class StaffAPIController : ControllerBase
         _db.StaffData.Remove(staff);
         await _db.SaveChangesAsync();
 
+        watch.Stop();
+        Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
         return NoContent();
     }
 }
@@ -117,8 +157,8 @@ public class StaffMapByIndex : ClassMap<Staff>
 {
     public StaffMapByIndex()
     {
-        Map(s => s.Staff_Id).Index(0);
-        Map(s => s.Staff_FirstName).Index(1);
+        Map(s => s.Staff_Id).Name("Id");
+        Map(s => s.Staff_FirstName).Name("FirstName");
         Map(s => s.Staff_LastName).Index(2);
         Map(s => s.Staff_ContactNo).Index(3);
     }
