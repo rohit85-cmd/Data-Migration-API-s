@@ -8,7 +8,7 @@ using CsvHelper.Configuration;
 using System.Text;
 using System.Diagnostics;
 using Swashbuckle.AspNetCore.Annotations;
-
+using System.Data.Common;
 
 [ApiController]
 [Route("api/staffAPI")]
@@ -17,14 +17,38 @@ public class StaffAPIController : ControllerBase
     private readonly IWebHostEnvironment _environment;
     private readonly ApplicationDbContext _db;
 
+    List<string> columnList = new List<string>();
     public StaffAPIController(IWebHostEnvironment environment, ApplicationDbContext db)
     {
         _environment = environment;
         _db = db;
+
+
+        DbConnection connection = _db.Database.GetDbConnection();
+        connection.Open();
+        DbCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'StaffData'";
+
+        using (DbDataReader reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                string columnName = reader["COLUMN_NAME"].ToString();
+                // do something with the column name
+                columnList.Add(columnName);
+
+            }
+        }
+        connection.Close();
+        foreach(string columnName in columnList)
+        {
+            Console.WriteLine($"Column Name: {columnName}");
+        }
+        
     }
 
-    
-   
+
+
 
     [HttpGet]
     [SwaggerOperation(Summary = "Returns staff records", Description = "Returns all staff records from the database.")]
