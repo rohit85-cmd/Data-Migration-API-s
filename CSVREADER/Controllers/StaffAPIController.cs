@@ -6,22 +6,34 @@ using CSVREADER.Data;
 using Microsoft.EntityFrameworkCore;
 using CsvHelper.Configuration;
 using System.Text;
-using System.Diagnostics;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Data.Common;
+using AutoMapper;
+using Microsoft.AspNetCore.Cors;
+using Microsoft.Data.SqlClient;
 
 [ApiController]
 [Route("api/staffAPI")]
+[EnableCors]
 public class StaffAPIController : ControllerBase
 {
+
     private readonly IWebHostEnvironment _environment;
     private readonly ApplicationDbContext _db;
+    private readonly IMapper _mapper;
 
-    List<string> columnList = new List<string>();
-    public StaffAPIController(IWebHostEnvironment environment, ApplicationDbContext db)
+    List<string> DbColumnList = new List<string>();
+
+
+
+
+
+    public StaffAPIController(IWebHostEnvironment environment, ApplicationDbContext db,IMapper mapper)
     {
         _environment = environment;
         _db = db;
+        _mapper = mapper;
+
 
 
         DbConnection connection = _db.Database.GetDbConnection();
@@ -35,52 +47,34 @@ public class StaffAPIController : ControllerBase
             {
                 string columnName = reader["COLUMN_NAME"].ToString();
                 // do something with the column name
-                columnList.Add(columnName);
+                DbColumnList.Add(columnName);
 
             }
         }
         connection.Close();
-        foreach(string columnName in columnList)
-        {
-            Console.WriteLine($"Column Name: {columnName}");
-        }
+
+
+    }
+
+
+    [HttpGet("headers")]
+    [SwaggerOperation(Summary = "Returns the header columns of database")]
+
+    [SwaggerResponse(200, "OK")]
+    [SwaggerResponse(400, "BadRequest")]
+    [SwaggerResponse(404, "NotFound")]
+    public List<string> GetHeaders()
+    {
+        return DbColumnList;
+    }
+
+
+
+    [HttpPost("upload")]
+
+    public async Task<ActionResult> uploadFile(IFormFile file)
+    {
         
-    }
-
-
-
-
-    [HttpGet]
-    [SwaggerOperation(Summary = "Returns staff records", Description = "Returns all staff records from the database.")]
-    [SwaggerResponse(200, "OK", typeof(IEnumerable<Staff>))]
-    //[ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<IEnumerable<Staff>>> GetAllCSVContent()
-    {
-        var watch = new Stopwatch();
-        watch.Start();
-        IEnumerable<Staff> StaffList = await _db.StaffData.ToListAsync();
-        watch.Stop();
-        Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
-        return Ok(StaffList);
-    }
-
-
-
-
-    //Migrating csv content to sql DB
-    [HttpPost]
-    [SwaggerOperation(Summary = "Uploads Staff CSV to SQL Database", Description = "Uploads Staff CSV to SQL Database with its respective matched column")]
-    [SwaggerResponse(200, "OK", typeof(IEnumerable<Staff>))]
-    [SwaggerResponse(400,"BadRequest")]
-    //[ProducesResponseType (StatusCodes.Status200OK)]
-    //[ProducesResponseType(StatusCodes.Status400BadRequest)]
-
-    public async Task<IActionResult> ReadCSVContent(IFormFile file) 
-    {
-        var watch = new Stopwatch();
-        watch.Start();
-
-
         if (file == null || file.Length == 0)
         {
             return BadRequest("No file selected");
@@ -93,98 +87,162 @@ public class StaffAPIController : ControllerBase
         };
 
         var filePath = Path.Combine(_environment.ContentRootPath, "uploads", file.FileName);
+        if (System.IO.File.Exists(filePath))
+        {
+            return BadRequest("File already exists in system change file name.");
+        }
 
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        using (var stream = new FileStream(filePath, FileMode.CreateNew))
         {
             await file.CopyToAsync(stream);
         }
 
-        using (var reader = new StreamReader(filePath))
-        using (var csv = new CsvReader(reader, configuration))
+        using var reader = new StreamReader(filePath);
+        List<string> headers = new List<string>();
+        using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
         {
-            
-            try
+            csv.Read();
+            csv.ReadHeader();
+            headers = csv.HeaderRecord.ToList();
+        }
+
+        //Validating csv file headers with csv model
+        var CSVModelHeaders = new List<string>();
+        var WrongHeaders = new List<string>();
+
+        CSV Csv = new CSV();
+        
+
+        foreach (var property in Csv.GetType().GetProperties())
+        {
+            Console.WriteLine(property.Name);
+            CSVModelHeaders.Add(property.Name);
+        }
+
+        foreach(var header in headers)
+        {
+            if (!CSVModelHeaders.Contains(header))
             {
-                
-                csv.Context.RegisterClassMap<StaffMapByIndex>(); //Registering manual mapping
-
-                var staffRecords = csv.GetRecords<Staff>().ToList();
-                //Console.WriteLine(staffRecords.GetType());
-
-                /*
-                foreach (var record in staffRecords)
-                {
-                    Console.WriteLine($"{record.Staff_Id},{record.Staff_FirstName},{record.Staff_LastName},{record.Staff_ContactNo}");
-                }
-                */
-
-                await _db.StaffData.AddRangeAsync(staffRecords);
-                await _db.SaveChangesAsync();
-
-
-                watch.Stop();
-                Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
-
-                return Ok(staffRecords);
+                WrongHeaders.Add(header);
             }
-            catch (Exception)
-            {
-                //if duplicate records
-                //if datatypes and datafields are not same as Staff Model we created
-                //then returning badRequest
-
-                return BadRequest("Bad Data Found");
-            }   
         }
+
+        if(WrongHeaders.Count > 0)
+        {
+            // Delete the file
+            System.IO.File.Delete(filePath);
+            return BadRequest("Wrong Headers");
+        }
+
+        return Ok("UPLOADED");
+
     }
 
 
-
-   
-    [HttpDelete ("{id:int}")]
-
-    [SwaggerOperation(Summary = "Deletes staff record by ID", Description = "Deletes staff record with the specified ID from SQL Database.")]
-
-    [SwaggerResponse (204,"OK")]
-    [SwaggerResponse (400,"BadRequest")]
-    [SwaggerResponse(404, "NotFound")]
-
-    //[ProducesResponseType(StatusCodes.Status204NoContent)]
-    //[ProducesResponseType(StatusCodes.Status404NotFound)]
-    //[ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult> DeleteStaffRecord(int id)
+    [HttpGet("download/{fileName}")]
+    public async Task<IActionResult> DownloadFile(string fileName)
     {
-        var watch = new Stopwatch();
-        watch.Start();
-
-        if (id==0)
+        var filePath = Path.Combine(_environment.ContentRootPath, "uploads", $"{fileName}");
+        
+        if (!System.IO.File.Exists(filePath))
         {
-            return BadRequest();
+            return NotFound("file not found");
         }
 
-        var staff = await _db.StaffData.FirstOrDefaultAsync(s=>s.Staff_Id== id);
-        if(staff == null)
+        var memoryStream = new MemoryStream();
+        using (var stream = new FileStream(filePath, FileMode.Open))
         {
-            return NotFound();
+            await stream.CopyToAsync(memoryStream);
         }
+        memoryStream.Position = 0;
+        Console.WriteLine(memoryStream.ToString());
 
-        _db.StaffData.Remove(staff);
-        await _db.SaveChangesAsync();
-
-        watch.Stop();
-        Console.WriteLine($"Response Time of API: {(float)(watch.ElapsedMilliseconds) / 1000} seconds");
-        return NoContent();
+        var contentType = "application/octet-stream";
+        var fileDownloadName = fileName;
+        return File(memoryStream, contentType, fileDownloadName);
     }
+
+
+    [HttpPost ("migrate/{fileName}")]
+    public async Task<ActionResult> MigrateCsvToSql(Dictionary<String,String>mapping, string fileName)
+    {
+        
+        // Check if the file exists in the server's file system
+        var filePath = Path.Combine(_environment.ContentRootPath, "uploads", $"{fileName}");
+        if (!System.IO.File.Exists(filePath))
+        {
+            return NotFound("file not found");
+        }
+        ActionResult file;
+        
+        // Download the file using the DownloadFile API
+        var downloadUrl = $"https://localhost:7096/api/staffAPI/download/{fileName}";
+        using (var client = new HttpClient())
+        {
+            var response =  await client.GetAsync(downloadUrl);
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStreamAsync();
+
+                // Return the downloaded file as the HTTP response
+                file = File(content, "application/octet-stream", $"{fileName}");
+
+                using var reader = new StreamReader(content);
+                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+
+                
+                //csv.Context.RegisterClassMap<StaffMapByDictionary>(); //Registering manual mapping
+
+                //var staffRecords = csv.GetRecords<Staff>().ToList();
+
+                // Map the CSV file records to Staff model using AutoMapper
+                var records = csv.GetRecords<CSV>().ToList();
+                var staffRecords = records.Select(record => _mapper.Map<Staff>(record));
+
+
+                try
+                {
+                    
+                    await _db.AddRangeAsync(staffRecords);
+                    await _db.SaveChangesAsync();
+
+                    return Ok(staffRecords);
+                }
+                catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx && sqlEx.Number == 2601)
+                {
+                    // Handle the specific error related to duplicate keys
+                    return BadRequest("A record with the same key value already exists in the database.");
+                }
+
+
+            }
+        }
+
+        // If the file download failed, return an error response
+        return BadRequest("Unable to download file");
+
+       
+    }
+
+    
+
 }
 
-public class StaffMapByIndex : ClassMap<Staff>
+public class StaffMapByDictionary : ClassMap<Staff>
 {
-    public StaffMapByIndex()
+    public StaffMapByDictionary()
     {
+        
         Map(s => s.Staff_Id).Name("Id");
         Map(s => s.Staff_FirstName).Name("FirstName");
         Map(s => s.Staff_LastName).Index(2);
         Map(s => s.Staff_ContactNo).Index(3);
+        
+
+       /*/foreach (var kvp in mapping)
+        {
+            Map(s => $"s.{kvp.Key}").Name($"{kvp.Value}");
+        }
+       */
     }
 }
-
