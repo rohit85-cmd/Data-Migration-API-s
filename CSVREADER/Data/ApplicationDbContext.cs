@@ -6,7 +6,10 @@ namespace CSVREADER.Data
     public class ApplicationDbContext : DbContext
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
-        public DbSet<Staff> StaffData { get; set; }
+        public DbSet<Staff> StaffData
+        {
+            get; set;
+        }
 
     }
 }

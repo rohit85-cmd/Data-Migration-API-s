@@ -1,18 +1,42 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace CSVREADER.Models
+﻿namespace CSVREADER.Models
 {
     public class CSV
     {
-        public int Id {get; set;}
+
         public string FirstName
-        { get; set;}
+        {
+            get; set;
+        }
         public string Staff_LastName
         {
             get; set;
         }
-        
+
         public string Staff_ContactNo
+        {
+            get; set;
+        }
+        public int emailverifactionStatus
+        {
+            get; set;
+        }
+        public int mobileverificationStatus
+        {
+            get; set;
+        }
+
+
+        public string EmailAddress
+        {
+            get; set;
+        }
+
+        public DateTime Birthdate
+        {
+            get; set;
+        }
+
+        public Boolean ActivityStatus
         {
             get; set;
         }
