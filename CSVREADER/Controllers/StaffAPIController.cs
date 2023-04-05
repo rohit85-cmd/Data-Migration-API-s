@@ -99,7 +99,9 @@ public class StaffAPIController : ControllerBase
             Delimiter = "," // The delimiter is a comma.
         };
 
-        var filePath = Path.Combine(_environment.ContentRootPath, "uploads", file.FileName);
+        DateTime now = DateTime.Now;
+
+        var filePath = Path.Combine(_environment.ContentRootPath, "uploads", DateTime.Now.ToString("yyyyMMdd_hhmmss") + file.FileName);
         if (System.IO.File.Exists(filePath))
         {
             return BadRequest("File with same name already exist in system. Change file name.");
@@ -134,7 +136,7 @@ public class StaffAPIController : ControllerBase
             CSVModelHeaders.Add(property.Name);
         }
 
-        foreach (var header in headers)
+        /*foreach (var header in headers)
         {
             if (!CSVModelHeaders.Contains(header))
             {
@@ -150,12 +152,25 @@ public class StaffAPIController : ControllerBase
             System.IO.File.Delete(filePath);
             return BadRequest("Wrong Headers");
         }
+        */
+
+        foreach (var csvmodelheader in CSVModelHeaders)
+        {
+            if (!headers.Contains(csvmodelheader))
+            {
+                // Delete the file
+                System.IO.File.Delete(filePath);
+                return BadRequest("Template file is tempered");
+            }
+        }
+
         //-----------------Validating csv file headers with csv model-----------------------
 
 
         using var reader2 = new StreamReader(filePath);
         using var csv2 = new CsvReader(reader2, CultureInfo.InvariantCulture);
-        var invalidRows = new List<int>(); // to store the line numbers of invalid rows
+
+        Dictionary<int, string> rowErrors = new Dictionary<int, string>(); // to store the line number and text which is invalid
         var lineNumber = 2; // initialize line number. (1 ---> header Row)
         while (csv2.Read())
         {
@@ -170,18 +185,29 @@ public class StaffAPIController : ControllerBase
 
             catch (CsvHelper.TypeConversion.TypeConverterException ex)
             {
-                invalidRows.Add(lineNumber); // store the line number of the invalid row
+
+                Console.WriteLine(ex.Text);
+
+
+                rowErrors.Add(lineNumber, ex.Text);
             }
             lineNumber++;
         }
         try
         {
-            if (invalidRows.Any())
+            var errorBuilder = new StringBuilder();
+            foreach (var error in rowErrors)
+            {
+                errorBuilder.AppendLine($"DataType mismatch on line {error.Key}: Something wrong with text '{error.Value}'");
+            }
+
+            if (errorBuilder.Length > 0)
             {
                 reader2.Close();
                 csv2.Dispose();
                 System.IO.File.Delete(filePath);
-                return BadRequest($"Csv file contains invalid datatype fields on row(s) {string.Join(",", invalidRows)}. Please make sure that you entered data is valid.");
+
+                return BadRequest(errorBuilder.ToString());
             }
             await _db.SaveChangesAsync();
         }
@@ -256,71 +282,5 @@ public class StaffAPIController : ControllerBase
         return File(memoryStream, contentType, fileDownloadName);
     }
 
-
-    [HttpPost("migrate/{fileName}")]
-    [SwaggerOperation
-    (
-        Summary = "Migrate csv content to sql table by using file name"
-    )
-    ]
-    [SwaggerResponse(200, "OK")]
-    [SwaggerResponse(400, "BadRequest")]
-    [SwaggerResponse(404, "NotFound")]
-    public async Task<ActionResult> MigrateCsvToSql(Dictionary<String, String> mapping, string fileName)
-    {
-
-        // Check if the file exists in the server's file system
-        var filePath = Path.Combine(_environment.ContentRootPath, "uploads", $"{fileName}");
-        if (!System.IO.File.Exists(filePath))
-        {
-            return NotFound("file not found");
-        }
-        ActionResult file;
-
-        // Download the file using the DownloadFile API
-        var downloadUrl = $"https://localhost:7096/api/staffAPI/download/{fileName}";
-        using (var client = new HttpClient())
-        {
-            var response = await client.GetAsync(downloadUrl);
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStreamAsync();
-
-                // Return the downloaded file as the HTTP response
-                file = File(content, "application/octet-stream", $"{fileName}");
-
-                using var reader = new StreamReader(content);
-                using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
-
-
-
-                // Map the CSV file records to Staff model using AutoMapper
-                var records = csv.GetRecords<CSV>().ToList();
-                var staffRecords = records.Select(record => _mapper.Map<Staff>(record));
-
-
-                try
-                {
-
-                    await _db.AddRangeAsync(staffRecords);
-                    await _db.SaveChangesAsync();
-
-                    return Ok(staffRecords);
-                }
-                catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx && sqlEx.Number == 2601)
-                {
-                    // Handle the specific error related to duplicate keys
-                    return BadRequest("A record with the same key value already exists in the database.");
-                }
-
-
-            }
-        }
-
-        // If the file download failed, return an error response
-        return BadRequest("Unable to download file");
-
-
-    }
 }
 
