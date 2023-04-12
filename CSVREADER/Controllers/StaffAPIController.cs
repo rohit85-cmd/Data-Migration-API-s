@@ -90,7 +90,7 @@ public class StaffAPIController : ControllerBase
         List<CSV> StaffRecords = new List<CSV>();
         if (file == null || file.Length == 0)
         {
-            return BadRequest("No file selected");
+            return BadRequest(new[] { "No file selected" });
         }
 
         var configuration = new CsvConfiguration(CultureInfo.InvariantCulture)
@@ -104,7 +104,7 @@ public class StaffAPIController : ControllerBase
         var filePath = Path.Combine(_environment.ContentRootPath, "uploads", DateTime.Now.ToString("yyyyMMdd_hhmmss") + file.FileName);
         if (System.IO.File.Exists(filePath))
         {
-            return BadRequest("File with same name already exist in system. Change file name.");
+            return BadRequest(new[] { "File with same name already exist in system. Change file name." });
         }
 
         using (var stream = new FileStream(filePath, FileMode.CreateNew))
@@ -160,7 +160,7 @@ public class StaffAPIController : ControllerBase
             {
                 // Delete the file
                 System.IO.File.Delete(filePath);
-                return BadRequest("Template file is tempered");
+                return BadRequest(new[] { "Uploaded file does not have required headers." });
             }
         }
 
@@ -195,19 +195,19 @@ public class StaffAPIController : ControllerBase
         }
         try
         {
-            var errorBuilder = new StringBuilder();
+            List<string> errors = new List<string>();
             foreach (var error in rowErrors)
             {
-                errorBuilder.AppendLine($"DataType mismatch on line {error.Key}: Something wrong with text '{error.Value}'");
+                errors.Add($"DataType mismatch on line {error.Key}: Something wrong with text '{error.Value}'");
             }
 
-            if (errorBuilder.Length > 0)
+            if (errors.Count > 0)
             {
                 reader2.Close();
                 csv2.Dispose();
                 System.IO.File.Delete(filePath);
 
-                return BadRequest(errorBuilder.ToString());
+                return BadRequest(errors);
             }
             await _db.SaveChangesAsync();
         }
@@ -218,7 +218,7 @@ public class StaffAPIController : ControllerBase
             // Handle the specific error related to duplicate keys
             System.IO.File.Delete(filePath);
 
-            return BadRequest("A record with the same key value already exists in the database.");
+            return BadRequest(new[] { "A record with the same key value already exists in the database." });
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx && sqlEx.Number == 2628)
         {
@@ -227,7 +227,7 @@ public class StaffAPIController : ControllerBase
 
             System.IO.File.Delete(filePath);
 
-            return BadRequest("String or binary data would be truncated in table 'CSV.dbo.StaffData'");
+            return BadRequest(new[] { "String or binary data would be truncated in table 'CSV.dbo.StaffData'" });
         }
         catch (Exception ex)
         {
@@ -236,7 +236,7 @@ public class StaffAPIController : ControllerBase
             // Handle the specific error related to duplicate keys
             System.IO.File.Delete(filePath);
 
-            return BadRequest(ex);
+            return BadRequest(new[] { ex.Message });
         }
 
         var result = new StaffUploadResult
