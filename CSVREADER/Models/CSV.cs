@@ -16,7 +16,7 @@
         {
             get; set;
         }
-        public int emailverifactionStatus
+        public int? emailverifactionStatus
         {
             get; set;
         }
@@ -31,15 +31,17 @@
             get; set;
         }
 
-        public DateTime Birthdate
+
+        public DateTime? Birthdate
         {
             get; set;
         }
 
-        public Boolean ActivityStatus
+        public Boolean? ActivityStatus
         {
             get; set;
         }
+
 
     }
 }

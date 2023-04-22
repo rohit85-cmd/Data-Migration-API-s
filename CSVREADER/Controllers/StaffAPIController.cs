@@ -36,22 +36,6 @@ public class StaffAPIController : ControllerBase
 
 
 
-        DbConnection connection = _db.Database.GetDbConnection();
-        connection.Open();
-        DbCommand command = connection.CreateCommand();
-        command.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'StaffData'";
-
-        using (DbDataReader reader = command.ExecuteReader())
-        {
-            while (reader.Read())
-            {
-                string columnName = reader["COLUMN_NAME"].ToString();
-                // do something with the column name
-                DbColumnList.Add(columnName);
-
-            }
-        }
-        connection.Close();
 
 
     }
@@ -68,8 +52,26 @@ public class StaffAPIController : ControllerBase
     [SwaggerResponse(200, "OK")]
     [SwaggerResponse(400, "BadRequest")]
     [SwaggerResponse(404, "NotFound")]
+
     public List<string> GetHeaders()
     {
+
+        DbConnection connection = _db.Database.GetDbConnection();
+        connection.Open();
+        DbCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'StaffData'";
+
+        using (DbDataReader reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                string columnName = reader["COLUMN_NAME"].ToString();
+                // do something with the column name
+                DbColumnList.Add(columnName);
+
+            }
+        }
+        connection.Close();
         return DbColumnList;
     }
 
@@ -114,11 +116,18 @@ public class StaffAPIController : ControllerBase
 
         using var reader = new StreamReader(filePath);
         List<string> headers = new List<string>();
-        using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+        try
         {
-            csv.Read();
-            csv.ReadHeader();
-            headers = csv.HeaderRecord.ToList();
+            using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+            {
+                csv.Read();
+                csv.ReadHeader();
+                headers = csv.HeaderRecord.ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new[] { "Uploaded File is empty." });
         }
 
 
@@ -136,23 +145,6 @@ public class StaffAPIController : ControllerBase
             CSVModelHeaders.Add(property.Name);
         }
 
-        /*foreach (var header in headers)
-        {
-            if (!CSVModelHeaders.Contains(header))
-            {
-                WrongHeaders.Add(header);
-            }
-        }
-
-        if (WrongHeaders.Count > 0)
-        {
-
-
-            // Delete the file
-            System.IO.File.Delete(filePath);
-            return BadRequest("Wrong Headers");
-        }
-        */
 
         foreach (var csvmodelheader in CSVModelHeaders)
         {
@@ -177,19 +169,23 @@ public class StaffAPIController : ControllerBase
             try
             {
                 var record = csv2.GetRecord<CSV>();
+                if (record == null)
+                {
+                    return BadRequest(new[] { "No Records in Uploaded file" });
+                }
                 StaffRecords.Add(record);
 
                 var staff = _mapper.Map<Staff>(record);
                 _db.Add(staff);
             }
-
             catch (CsvHelper.TypeConversion.TypeConverterException ex)
             {
-
                 Console.WriteLine(ex.Text);
-
-
                 rowErrors.Add(lineNumber, ex.Text);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
             }
             lineNumber++;
         }
@@ -200,13 +196,11 @@ public class StaffAPIController : ControllerBase
             {
                 errors.Add($"DataType mismatch on line {error.Key}: Something wrong with text '{error.Value}'");
             }
-
             if (errors.Count > 0)
             {
                 reader2.Close();
                 csv2.Dispose();
                 System.IO.File.Delete(filePath);
-
                 return BadRequest(errors);
             }
             await _db.SaveChangesAsync();
