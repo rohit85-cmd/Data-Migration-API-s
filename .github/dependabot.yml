@@ -6,7 +6,7 @@
 version: 2
 updates:
   - package-ecosystem: "nuget" # See documentation for possible values
-    directory: "/CSVREADER/appsettings.json" # Location of package manifests
+    directory: "/CSVREADER" # Location of package manifests
     schedule:
       interval: "daily"
-      time: "17.39"
+      time: "17.53"
